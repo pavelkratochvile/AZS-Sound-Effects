@@ -1,7 +1,8 @@
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-import keyboard as keyboard
+from math import sin
+from math import floor
 
 class Signal():
     def __init__(self, filename, duration, samplerate, frequency):
@@ -14,6 +15,8 @@ class Signal():
         self.reverse_signal = None
         self.reverb_signal = None
         self.slowDown_signal = None
+        self.chorus_signal = None
+
 
     def createSignalFromParams(self, duration, samplerate, frequency):
         self.duration = duration
@@ -115,6 +118,35 @@ class Signal():
             
         self.reverb_signal = output.astype(np.float32)
 
+    def chorus(self, base_delay_s=0.02, depth_s=0.003, lfo_freq=1.5, gain=0.7):
+        N = len(self.signal)
+        t = np.arange(N) / self.samplerate
+        delay_s = base_delay_s + depth_s * np.sin(2 * np.pi * lfo_freq * t)
+        delay_samples = delay_s * self.samplerate
+        dn_floor = np.floor(delay_samples).astype(int)
+        dn_up = dn_floor + 1
+        dn_diff = delay_samples - dn_floor
+        
+        idx_floor = np.arange(N) - dn_floor
+        idx_up = np.arange(N) - dn_up
+        
+        valid_floor = idx_floor >= 0
+        valid_up = idx_up >= 0
+        
+        val = np.zeros(N, dtype=np.float32)
+
+        val[valid_floor] += (1 - dn_diff[valid_floor]) * self.signal[idx_floor[valid_floor]]
+
+        val[valid_up] += dn_diff[valid_up] * self.signal[idx_up[valid_up]]
+        
+        output = self.signal + gain * val
+        
+        max_val = np.max(np.abs(output))
+        if max_val > 1.0:
+            output /= max_val
+            
+        self.chorus_signal = output.astype(np.float32)
+    
     def playSound(self):
         sd.play(self.signal, self.samplerate)
         sd.wait()
@@ -147,6 +179,13 @@ class Signal():
         else:
             print("No slow down signal available. Please call slowDown() first.")
 
+    def playChorus(self):
+        if self.chorus_signal is not None:
+            sd.play(self.chorus_signal, self.samplerate)
+            sd.wait()
+        else:
+            print("No chorus signal available. Please call chorus() first.")
+
 class SoundEffects():
 
     def __init__(self):
@@ -155,11 +194,8 @@ class SoundEffects():
 
 if __name__ == "__main__":
     s1 = Signal(None, 2.0, 44100, 600.0)
-    s2 = Signal("hardstyle-kick.wav", None, None, None)
-
-    s2.reverse()
-    s2.echo_single()
-    s2.reverb()
-    s2.slowDown(0.5)
-
-    s2.playSlowDown()
+    s2 = Signal("siren.wav", None, None, None)
+    
+    s2.playSound()
+    s2.chorus()
+    s2.playChorus()
